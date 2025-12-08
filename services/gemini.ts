@@ -68,10 +68,19 @@ export const getMovieExtra = async (title: string, year: string, type: 'quote' |
     // Cache the result
     extraCache.set(cacheKey, { data: result, timestamp: Date.now() });
     
-    // Clean up old cache entries (keep cache size reasonable)
+    // Clean up expired cache entries (time-based cleanup)
     if (extraCache.size > 50) {
-      const oldestKey = Array.from(extraCache.keys())[0];
-      extraCache.delete(oldestKey);
+      const now = Date.now();
+      for (const [key, value] of extraCache.entries()) {
+        if (now - value.timestamp > CACHE_DURATION) {
+          extraCache.delete(key);
+        }
+      }
+      // If still over limit after removing expired entries, remove oldest entries
+      if (extraCache.size > 50) {
+        const entriesToRemove = Array.from(extraCache.keys()).slice(0, extraCache.size - 50);
+        entriesToRemove.forEach(key => extraCache.delete(key));
+      }
     }
     
     return result;

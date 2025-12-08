@@ -65,11 +65,6 @@ export default function App() {
     };
   }, []);
 
-  const handleGenreClick = useCallback((genreName: string) => {
-    setSelectedGenre(genreName);
-    pickMovie(genreName);
-  }, [pickMovie]);
-
   const pickMovie = useCallback((genreName: string) => {
     // Clear any existing animation
     if (animationIntervalRef.current) {
@@ -112,6 +107,11 @@ export default function App() {
       }
     }, 80);
   }, []);
+
+  const handleGenreClick = useCallback((genreName: string) => {
+    setSelectedGenre(genreName);
+    pickMovie(genreName);
+  }, [pickMovie]);
 
   const handleAIMatch = useCallback(async () => {
     if (!userMood.trim() || isAILoading) return; // Prevent duplicate calls
@@ -158,9 +158,6 @@ export default function App() {
     if (!movie) return '';
     return `https://www.youtube.com/results?search_query=${encodeURIComponent(movie.title + " " + movie.year + " trailer")}`;
   }, [movie]);
-
-  // Memoize genre list to avoid re-creating it on every render
-  const genreList = useMemo(() => genres, []);
 
   return (
     <div className="relative min-h-screen text-slate-100 font-sans overflow-x-hidden selection:bg-pink-500/30">
@@ -261,7 +258,7 @@ export default function App() {
 
               {/* Genre Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pb-12">
-                {genreList.map((genre, index) => (
+                {genres.map((genre, index) => (
                   <motion.button
                     key={genre.name}
                     initial={{ opacity: 0, y: 20 }}
