@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Movie } from "../types";
 
-const apiKey = process.env.API_KEY || "";
+const apiKey = import.meta.env.VITE_API_KEY || "";
 const ai = new GoogleGenAI({ apiKey });
 
 export const getAIMovieRecommendation = async (userMood: string): Promise<Movie> => {
