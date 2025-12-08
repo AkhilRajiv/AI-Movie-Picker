@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { 
   Film, RefreshCw, ChevronLeft, Sparkles, Send, X, 
   MessageSquareQuote, BrainCircuit, Play, Ticket, Search
@@ -10,7 +10,7 @@ import { getAIMovieRecommendation, getMovieExtra } from './services/gemini';
 
 // --- SUB-COMPONENTS ---
 
-const AuroraBackground = () => (
+const AuroraBackground = React.memo(() => (
   <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none bg-[#020617]">
     {/* Animated Blobs */}
     <motion.div 
@@ -29,16 +29,16 @@ const AuroraBackground = () => (
       className="absolute -bottom-20 left-1/4 w-[35rem] h-[35rem] bg-pink-600/10 rounded-full blur-[130px]" 
     />
   </div>
-);
+));
 
-const GlassCard = ({ children, className = "", onClick }: { children: React.ReactNode, className?: string, onClick?: () => void }) => (
+const GlassCard = React.memo(({ children, className = "", onClick }: { children: React.ReactNode, className?: string, onClick?: () => void }) => (
   <div 
     onClick={onClick}
     className={`backdrop-blur-xl bg-white/[0.03] border border-white/[0.08] rounded-3xl shadow-2xl ${className}`}
   >
     {children}
   </div>
-);
+));
 
 export default function App() {
   const [view, setView] = useState<ViewState>('home');
@@ -52,39 +52,69 @@ export default function App() {
   const [isAILoading, setIsAILoading] = useState(false);
   const [aiExtraContent, setAiExtraContent] = useState<ExtraContent | null>(null);
   const [loadingExtra, setLoadingExtra] = useState<'quote' | 'trivia' | null>(null);
+  
+  // Ref to store interval ID for cleanup
+  const animationIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleGenreClick = (genreName: string) => {
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (animationIntervalRef.current) {
+        clearInterval(animationIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const handleGenreClick = useCallback((genreName: string) => {
     setSelectedGenre(genreName);
     pickMovie(genreName);
-  };
+  }, [pickMovie]);
 
-  const pickMovie = (genreName: string) => {
+  const pickMovie = useCallback((genreName: string) => {
+    // Clear any existing animation
+    if (animationIntervalRef.current) {
+      clearInterval(animationIntervalRef.current);
+      animationIntervalRef.current = null;
+    }
+    
     setIsAnimating(true);
     setView('result');
     setAiExtraContent(null);
     
+    const list = movieDatabase[genreName];
+    if (!list || list.length === 0) {
+      setIsAnimating(false);
+      return;
+    }
+    
+    // Pick final movie immediately to avoid duplicate random selection
+    const finalPick = list[Math.floor(Math.random() * list.length)];
+    
     let count = 0;
-    const interval = setInterval(() => {
-      const list = movieDatabase[genreName];
-      if (list && list.length > 0) {
+    const maxCount = 12;
+    animationIntervalRef.current = setInterval(() => {
+      count++;
+      
+      // Show random movies during animation
+      if (count <= maxCount) {
         const randomTemp = list[Math.floor(Math.random() * list.length)];
         setMovie(randomTemp);
       }
-      count++;
-      if (count > 12) { 
-        clearInterval(interval);
-        const list = movieDatabase[genreName];
-        if (list) {
-            const finalPick = list[Math.floor(Math.random() * list.length)];
-            setMovie(finalPick);
+      
+      // Set final pick and stop animation
+      if (count > maxCount) { 
+        if (animationIntervalRef.current) {
+          clearInterval(animationIntervalRef.current);
+          animationIntervalRef.current = null;
         }
+        setMovie(finalPick);
         setIsAnimating(false);
       }
     }, 80);
-  };
+  }, []);
 
-  const handleAIMatch = async () => {
-    if (!userMood.trim()) return;
+  const handleAIMatch = useCallback(async () => {
+    if (!userMood.trim() || isAILoading) return; // Prevent duplicate calls
     setIsAILoading(true);
     try {
       const recommendation = await getAIMovieRecommendation(userMood);
@@ -99,24 +129,38 @@ export default function App() {
     } finally {
       setIsAILoading(false);
     }
-  };
+  }, [userMood, isAILoading]);
 
-  const fetchExtra = async (type: 'quote' | 'trivia') => {
-    if (!movie) return;
+  const fetchExtra = useCallback(async (type: 'quote' | 'trivia') => {
+    if (!movie || loadingExtra) return; // Prevent duplicate calls
     setLoadingExtra(type);
     setAiExtraContent(null);
-    const text = await getMovieExtra(movie.title, movie.year, type);
-    setAiExtraContent({ type, text });
-    setLoadingExtra(null);
-  };
+    try {
+      const text = await getMovieExtra(movie.title, movie.year, type);
+      setAiExtraContent({ type, text });
+    } catch (error) {
+      console.error('Error fetching extra content:', error);
+    } finally {
+      setLoadingExtra(null);
+    }
+  }, [movie, loadingExtra]);
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     setView('home');
     setSelectedGenre(null);
     setMovie(null);
     setShowAIInput(false);
     setAiExtraContent(null);
-  };
+  }, []);
+
+  // Memoize trailer URL to avoid recalculating on every render
+  const trailerUrl = useMemo(() => {
+    if (!movie) return '';
+    return `https://www.youtube.com/results?search_query=${encodeURIComponent(movie.title + " " + movie.year + " trailer")}`;
+  }, [movie]);
+
+  // Memoize genre list to avoid re-creating it on every render
+  const genreList = useMemo(() => genres, []);
 
   return (
     <div className="relative min-h-screen text-slate-100 font-sans overflow-x-hidden selection:bg-pink-500/30">
@@ -217,7 +261,7 @@ export default function App() {
 
               {/* Genre Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 pb-12">
-                {genres.map((genre, index) => (
+                {genreList.map((genre, index) => (
                   <motion.button
                     key={genre.name}
                     initial={{ opacity: 0, y: 20 }}
@@ -374,7 +418,7 @@ export default function App() {
                         {/* Actions */}
                         <div className="flex flex-col sm:flex-row gap-4 mt-auto">
                            <button 
-                            onClick={() => window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(movie.title + " " + movie.year + " trailer")}`, '_blank')}
+                            onClick={() => window.open(trailerUrl, '_blank')}
                             disabled={isAnimating}
                             className="flex-1 py-4 bg-white text-black hover:bg-slate-200 rounded-xl font-bold shadow-lg shadow-white/10 flex items-center justify-center gap-2 transition-all transform hover:scale-[1.02] active:scale-95 text-base"
                           >
